@@ -179,10 +179,23 @@ var Query = function (vm, query) {
     vm.search();
   });
 
-  self.toggleFacet = function (data) {
+  self.toggleFacetClear = function (data) {
+    var fqs = self.fqs();
+    var fFilter = function(f) { return ko.toJSON(f.value()) == ko.toJSON(data.facet.value); };
+    for (var i = fqs.length - 1; i >= 0; i--) { // Backward iteration to delete
+      fq = fqs[i];
+      if (fq.id() == data.widget_id) {
+        self.fqs.remove(fq);
+      }
+    }
+    self.start(0);
+    vm.search();
+  };
+
+  self.toggleFacet = function (data, bSingle) {
     var fq = self.getFacetFilter(data.widget_id);
 
-    if (fq == null) {
+    if (!fq) {
       self.fqs.push(ko.mapping.fromJS({
         'id': data.widget_id,
         'field': data.facet.cat,
@@ -190,22 +203,28 @@ var Query = function (vm, query) {
         'type': 'field'
       }));
     } else {
-      $.each(self.fqs(), function (index, fq) {
+      var fqs = self.fqs();
+      var fFilter = function(f) { return ko.toJSON(f.value()) == ko.toJSON(data.facet.value); };
+      for (var i = fqs.length - 1; i >= 0; i--) { // Backward iteration to delete
+        fq = fqs[i];
         if (fq.id() == data.widget_id) {
-          var f = $.grep(fq.filter(), function(f) { return ko.toJSON(f.value()) == ko.toJSON(data.facet.value); });
-          if (f.length > 0) {
+          var f = $.grep(fq.filter(), fFilter);
+          if (f.length && !bSingle) {
             fq.filter.remove(f[0]);
-            if (fq.filter().length == 0) {
+            if (!fq.filter().length) {
               self.fqs.remove(fq);
             }
           } else {
+            if (bSingle) {
+              fq.filter.removeAll();
+            }
             fq.filter.push(ko.mapping.fromJS({'exclude': data.exclude ? true : false, 'value': data.facet.value}));
           }
         }
-      });
+      }
     }
 
-    if (vm.selectedQDefinition() != null){
+    if (vm.selectedQDefinition()) {
       vm.selectedQDefinition().hasChanged(true);
     }
 
@@ -1629,9 +1648,9 @@ var Collection = function (vm, collection) {
     }
 
     if (direction == 'up') {
-      facet.properties.limit(facet.properties.limit() + 10);
+      facet.properties.limit(facet.properties.limit() + 100);
     } else {
-      facet.properties.limit(facet.properties.limit() - 10);
+      facet.properties.limit(facet.properties.limit() - 100);
     }
 
     vm.search();
@@ -1800,7 +1819,8 @@ var SearchViewModel = function (collection_json, query_json, initial_json, has_g
           hasRetrievedResults: true, // Temp
           results: [],
           response: '',
-          fieldAnalysesName: ''
+          fieldAnalysesName: '',
+          querySpec: ''
         });
       }
 
@@ -2296,6 +2316,42 @@ var SearchViewModel = function (collection_json, query_json, initial_json, has_g
 
       if (!facet.has_data() || facet.resultHash() != _hash) {
         facet.counts(new_facet.counts);
+        facet.autocompleteFromEntries = function (nonPartial, partial) {
+          var result = [];
+          var partialLower = partial.toLowerCase();
+          facet.counts().forEach(function (entry) {
+            var value = typeof entry.value == "string" ? entry.value : entry.value.toString();
+            if (value.toLowerCase().indexOf(partialLower) === 0) {
+              result.push(nonPartial + partial + value.substring(partial.length));
+            }
+          });
+          return result;
+        };
+        $.each(facet.counts(), function (index, item) {
+          item.text = item.value + ' (' + item.count + ')';
+        });
+        facet.onCountsSelected = function(m, e) {
+          var value = $(e.target).val();
+          var counts = facet.counts();
+          for (var i = 0; i < counts.length; i++) {
+            if (counts[i].value == value) {
+              self.query.toggleFacet({ facet: counts[i], widget_id: new_facet.id }, true);
+              return;
+            }
+          }
+          self.query.toggleFacetClear({ widget_id: new_facet.id });
+        }
+        if (!facet.countsFiltered) {
+          facet.countsFiltered = ko.pureComputed(function() {
+            var querySpec = facet.querySpec();
+            if (!querySpec || !querySpec.query) return facet.counts();
+            var text = querySpec.query;
+            return facet.counts().filter(function (entry) {
+              var value = typeof entry.value == "string" ? entry.value : entry.value.toString();
+              return value.toLowerCase().indexOf(text) >= 0;
+            });
+          });
+        }
 
         if (typeof new_facet.docs != 'undefined') {
           var _docs = [];

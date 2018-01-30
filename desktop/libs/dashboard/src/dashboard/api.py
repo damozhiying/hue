@@ -411,6 +411,7 @@ def _create_facet(collection, user, facet_id, facet_label, facet_field, widget_t
 
       if widget_type == 'text-facet-widget':
         properties['type'] = facet_type
+        properties['limit'] = 100
 
       properties['facets_form'] = NESTED_FACET_FORM
       # Not supported on dim 2 currently
@@ -422,6 +423,7 @@ def _create_facet(collection, user, facet_id, facet_label, facet_field, widget_t
       facet['field'] = facet_field
       facet['limit'] = 10
       facet['fieldLabel'] = facet_field
+      facet['multiselect'] = True
 
       if range_properties:
         # TODO: timeline still uses properties from top properties
